@@ -17,8 +17,10 @@ import conversation.HistoryWindow
 import harness.AgentLoop
 import harness.AgentTool
 import harness.KoogLlm
+import harness.Llm
 import harness.ToolBox
 import io.github.oshai.kotlinlogging.KotlinLogging
+import observability.TokenMeter
 import rag.DocumentSearchService
 import sandbox.Sandbox
 import skills.SkillCatalog
@@ -50,6 +52,11 @@ object AgentFactory {
         store: ConversationStore,
         sandbox: Sandbox? = null,
         documentSearchService: DocumentSearchService = DocumentSearchService(),
+        /**
+         * Measures what runs cost. Null turns measurement off entirely — no wrappers,
+         * no records — so the un-instrumented path stays exactly what it was.
+         */
+        meter: TokenMeter? = null,
     ): AgentService {
         val executor = buildPromptExecutor(config)
         val model = resolveModel(config)
@@ -67,6 +74,7 @@ object AgentFactory {
             catalog = null,
             config = config,
             documentSearchService = documentSearchService,
+            meter = meter,
         )
         val ownerToolsForLog = if (sandbox == null) {
             guestToolsForLog
@@ -77,6 +85,7 @@ object AgentFactory {
                 catalog = catalog,
                 config = config,
                 documentSearchService = documentSearchService,
+                meter = meter,
             )
         }
 
@@ -91,12 +100,12 @@ object AgentFactory {
             }
         }
 
-        val llm = KoogLlm(
+        val llm: Llm = KoogLlm(
             executor = executor,
             model = model,
             callTimeout = config.llmCallTimeout,
             maxAttempts = config.llmMaxAttempts,
-        )
+        ).let { plain -> meter?.meter(plain) ?: plain }
 
         return HarnessAgentService(
             loop = AgentLoop(llm = llm, maxSteps = config.agentMaxSteps),
@@ -106,15 +115,19 @@ object AgentFactory {
                 if (chatId in owners && sandbox != null) {
                     AgentProfile(
                         systemPrompt = systemPromptWithSkills(config.systemPrompt, catalog),
-                        tools = buildToolBox(chatId, sandbox, catalog, config, documentSearchService),
+                        tools = buildToolBox(chatId, sandbox, catalog, config, documentSearchService, meter),
                     )
                 } else {
                     AgentProfile(
                         systemPrompt = config.systemPrompt,
-                        tools = buildToolBox(chatId, sandbox = null, catalog = null, config, documentSearchService),
+                        tools = buildToolBox(
+                            chatId, sandbox = null, catalog = null, config, documentSearchService, meter,
+                        ),
                     )
                 }
             },
+            meter = meter,
+            model = model.id,
         )
     }
 
@@ -133,6 +146,7 @@ object AgentFactory {
         catalog: SkillCatalog?,
         config: AppConfig,
         documentSearchService: DocumentSearchService,
+        meter: TokenMeter?,
     ): ToolBox =
         ToolBox(
             buildList<AgentTool> {
@@ -146,7 +160,7 @@ object AgentFactory {
                 if (sandbox != null && catalog != null && !catalog.isEmpty()) {
                     add(SkillTool(catalog))
                 }
-            },
+            }.map { tool -> meter?.meter(tool) ?: tool },
         )
 
     /** Appends the skill catalogue to the system prompt, if there is one. */

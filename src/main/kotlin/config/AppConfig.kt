@@ -1,5 +1,7 @@
 package config
 
+import observability.ObservabilityStore
+import observability.TokenPrices
 import rag.OllamaEmbeddingService
 import java.io.File
 import kotlin.time.Duration
@@ -151,6 +153,16 @@ data class AppConfig(
     val embeddingDimension: Int,
     /** Largest document accepted for indexing, in bytes. */
     val ragMaxDocumentBytes: Long,
+    /** Whether every run is measured and stored for the token audit. */
+    val observabilityEnabled: Boolean,
+    val observabilityDbPath: String,
+    /**
+     * Model whose price list turns token counts into dollars for a local model.
+     *
+     * A local run costs nothing per token, so a report priced at the local model's
+     * own rate would always read `$0.00`. See [observability.TokenPrices].
+     */
+    val costReferenceModel: String,
 ) {
     override fun toString(): String =
         "AppConfig(llmProvider=$llmProvider, llmModel='$llmModel', " +
@@ -160,6 +172,7 @@ data class AppConfig(
             "conversationMaxChars=$conversationMaxChars, ragDbPath='$ragDbPath', " +
             "sqliteVec=${sqliteVecExtensionPath ?: "<fallback>"}, " +
             "embeddings=$embeddingProvider/'$embeddingModel'/${embeddingDimension}d, " +
+            "observability=${if (observabilityEnabled) observabilityDbPath else "off"}, " +
             "execSandbox=$execSandbox, " +
             "owners=${ownerChatIds.size}, execTimeout=$execTimeout, " +
             "telegramBotToken=***, llmApiKey=***)"
@@ -283,6 +296,11 @@ data class AppConfig(
                 ragMaxDocumentBytes = positiveLong(
                     source, "RAG_MAX_DOCUMENT_BYTES", DEFAULT_MAX_DOCUMENT_BYTES,
                 ),
+                observabilityEnabled = boolean(source, "OBSERVABILITY_ENABLED", default = true),
+                observabilityDbPath = source["OBSERVABILITY_DB_PATH"]?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: ObservabilityStore.DEFAULT_DB_PATH,
+                costReferenceModel = source["COST_REFERENCE_MODEL"]?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: TokenPrices.DEFAULT_REFERENCE_MODEL,
             )
         }
 
@@ -312,6 +330,22 @@ data class AppConfig(
                 ?: throw ConfigException("$key must be an integer, got '$raw'.")
             if (value <= 0) throw ConfigException("$key must be greater than 0, got $value.")
             return value
+        }
+
+        /**
+         * Reads a flag.
+         *
+         * A typo is fatal rather than falsy: silently treating `OBSERVABILITY_ENABLED=ture`
+         * as "off" would mean discovering the missing measurements after the run that
+         * needed them.
+         */
+        private fun boolean(source: Map<String, String>, key: String, default: Boolean): Boolean {
+            val raw = source[key]?.trim()?.takeIf { it.isNotEmpty() } ?: return default
+            return when (raw.lowercase()) {
+                "true", "yes", "on", "1" -> true
+                "false", "no", "off", "0" -> false
+                else -> throw ConfigException("$key must be true or false, got '$raw'.")
+            }
         }
     }
 }

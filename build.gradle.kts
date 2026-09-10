@@ -59,3 +59,18 @@ application {
 tasks.test {
     useJUnitPlatform()
 }
+
+/**
+ * The token benchmark. Records one arm of the before/after comparison:
+ *
+ *     ./gradlew benchmark --args="baseline"
+ *     ./gradlew benchmark --args="optimized"
+ *     ./gradlew benchmark --args="report"
+ */
+tasks.register<JavaExec>("benchmark") {
+    group = "verification"
+    description = "Runs the token benchmark and records a labelled arm of it."
+    mainClass.set("benchmark.BenchmarkMain")
+    classpath = sourceSets["main"].runtimeClasspath
+    jvmArgs("-Dfile.encoding=UTF-8")
+}

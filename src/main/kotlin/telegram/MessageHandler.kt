@@ -19,6 +19,9 @@ import rag.EmptyDocumentException
 import rag.IndexDocumentResult
 import rag.RagSearchResult
 import rag.SaveDocsResult
+import observability.ObservabilityStore
+import observability.TokenPrices
+import observability.TokenReport
 import rag.UnsupportedDocumentTypeException
 import java.nio.file.Path
 import kotlin.time.Duration
@@ -36,6 +39,9 @@ class MessageHandler(
     private val timeout: Duration,
     private val documentIndexingService: DocumentIndexingService = DocumentIndexingService(),
     private val documentSearchService: DocumentSearchService = DocumentSearchService(),
+    /** Where run traces are read from for /stats and /trace. Null when measurement is off. */
+    private val observabilityStore: ObservabilityStore? = null,
+    private val prices: TokenPrices = TokenPrices(),
 ) {
 
     /**
@@ -185,6 +191,43 @@ class MessageHandler(
     }
 
     /**
+     * The token dashboard: what every run so far has cost.
+     */
+    internal fun tokenStats(): String = try {
+        val store = observabilityStore ?: return MEASUREMENT_OFF
+        val runs = store.runs()
+        TokenReport.dashboard(runs, store.toolCalls(), prices)
+    } catch (e: Throwable) {
+        logger.error(e) { "Failed to render the token dashboard" }
+        "I could not read the token statistics. Please check the logs."
+    }
+
+    /**
+     * Turn-by-turn cost of one run — the last one by default.
+     *
+     * An average hides the shape of a run, and the shape is where the waste is: a
+     * prompt that doubles every turn looks the same as a steady one in a mean.
+     */
+    internal fun tokenTrace(runId: String = ""): String = try {
+        val store = observabilityStore ?: return MEASUREMENT_OFF
+        val wanted = runId.trim()
+        val runs = store.runs()
+        val run = if (wanted.isEmpty()) {
+            runs.firstOrNull()
+        } else {
+            runs.firstOrNull { it.runId.startsWith(wanted) || it.taskId == wanted }
+        }
+        if (run == null) {
+            if (wanted.isEmpty()) "No runs recorded yet." else "I have no run matching '$wanted'."
+        } else {
+            TokenReport.timeline(run, store.llmCalls(run.runId), store.toolCalls(run.runId))
+        }
+    } catch (e: Throwable) {
+        logger.error(e) { "Failed to render a run trace" }
+        "I could not read that run's trace. Please check the logs."
+    }
+
+    /**
      * Sends [text] back, splitting it across messages when it exceeds Telegram's
      * per-message limit. A Telegram API failure here is logged, not rethrown —
      * there is no way left to tell the user about it.
@@ -204,6 +247,9 @@ class MessageHandler(
     }
 
     internal companion object {
+        const val MEASUREMENT_OFF =
+            "Token measurement is switched off. Set OBSERVABILITY_ENABLED=true and restart."
+
         const val EMBEDDING_UNAVAILABLE =
             "I could not turn that text into vectors — the embedding model is not answering. " +
                 "Please try again in a moment."

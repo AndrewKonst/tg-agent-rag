@@ -8,10 +8,12 @@ import conversation.ConversationStore
 import conversation.HistoryWindow
 import conversation.withoutReasoning
 import harness.AgentLoop
+import harness.AgentRun
 import harness.StopReason
 import harness.ToolBox
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CancellationException
+import observability.TokenMeter
 
 private val logger = KotlinLogging.logger {}
 
@@ -68,11 +70,34 @@ class HarnessAgentService(
     /** What the chat may do, and what it is told. See [AgentFactory] for who gets what. */
     private val profileFor: (chatId: Long) -> AgentProfile,
     private val clock: KoogClock = KoogClock.System,
+    /**
+     * Measures what each run costs, or nothing at all.
+     *
+     * A run is the unit the audit cares about — turns, tools and repeated context all
+     * belong to one — and this is the only place that knows where one begins and ends.
+     */
+    private val meter: TokenMeter? = null,
+    private val model: String = "unknown",
 ) : AgentService {
 
     private val locks = ChatLocks()
 
     override suspend fun ask(chatId: Long, message: String): String = locks.withLock(chatId) {
+        if (meter == null) return@withLock runOnce(chatId, message).answer
+
+        meter.measure(
+            agentId = AGENT_ID,
+            chatId = chatId,
+            model = model,
+            // The loop knows why it stopped, and a run that ran out of steps is exactly
+            // the kind an audit of cost wants to be able to find.
+            stopReasonOf = { agentRun: AgentRun -> agentRun.stopReason.name },
+        ) {
+            runOnce(chatId, message)
+        }.value.answer
+    }
+
+    private suspend fun runOnce(chatId: Long, message: String): AgentRun {
         val profile = profileFor(chatId)
         val history = window.fit(store.load(chatId))
         val userMessage = Message.User(message, RequestMetaInfo.create(clock))
@@ -84,7 +109,7 @@ class HarnessAgentService(
         }
         logger.debug { "chat=$chatId: replaying ${history.size} message(s) of history" }
 
-        val run = try {
+        val agentRun = try {
             loop.run(conversation, profile.tools)
         } catch (e: CancellationException) {
             // Timeout or shutdown: let the caller's coroutine machinery handle it.
@@ -99,17 +124,22 @@ class HarnessAgentService(
         // exchange — an assistant tool call with no result — poisoning the next turn.
         store.append(chatId, buildList {
             add(userMessage)
-            addAll(run.appended.map { it.withoutReasoning() })
+            addAll(agentRun.appended.map { it.withoutReasoning() })
         })
 
-        if (run.stopReason != StopReason.COMPLETED) {
-            logger.warn { "chat=$chatId: run ended as ${run.stopReason} after ${run.steps} step(s)" }
+        if (agentRun.stopReason != StopReason.COMPLETED) {
+            logger.warn { "chat=$chatId: run ended as ${agentRun.stopReason} after ${agentRun.steps} step(s)" }
         }
-        run.answer
+        return agentRun
     }
 
     override suspend fun reset(chatId: Long) = locks.withLock(chatId) {
         store.clear(chatId)
         logger.info { "chat=$chatId: history cleared" }
+    }
+
+    private companion object {
+        /** One agent in this process; the field exists because traces outlive it. */
+        const val AGENT_ID = "telegram-agent"
     }
 }

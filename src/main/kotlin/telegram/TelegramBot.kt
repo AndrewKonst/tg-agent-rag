@@ -79,6 +79,8 @@ class TelegramBot(
                         "/delete <filename> — delete a saved document\n" +
                         "/save_docs — index the bundled example documents\n" +
                         "/search_docs <query> — search your documents without the AI\n" +
+                        "/stats — what my runs have cost in tokens\n" +
+                        "/trace [run] — turn-by-turn cost of one run\n" +
                         "/whoami — show your chat id",
                 )
             }
@@ -101,6 +103,15 @@ class TelegramBot(
             onCommand("search_docs") { message ->
                 val query = message.content.text.removePrefix("/search_docs")
                 reply(message, messageHandler.searchDocs(message.chat.id.chatId.long, query))
+            }
+
+            onCommand("stats") { message ->
+                reply(message, messageHandler.tokenStats())
+            }
+
+            onCommand("trace") { message ->
+                val runId = message.content.text.removePrefix("/trace")
+                reply(message, messageHandler.tokenTrace(runId))
             }
 
             onCommand("documents") { message ->

@@ -30,6 +30,9 @@ import rag.EmbeddingService
 import rag.HashingEmbeddingService
 import rag.OllamaEmbeddingService
 import rag.SqliteRagStore
+import observability.ObservabilityStore
+import observability.TokenMeter
+import observability.TokenPrices
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.system.exitProcess
@@ -70,12 +73,24 @@ fun main(): Unit = runBlocking {
     )
     val sandbox = buildSandbox(config, logger)
     sandbox?.let { logger.info { "Shell commands will run in: ${it.description}" } }
-    val agentService = AgentFactory.create(config, store, sandbox, documentSearchService)
+
+    val observabilityStore = if (config.observabilityEnabled) {
+        ObservabilityStore(Path.of(config.observabilityDbPath))
+    } else {
+        logger.info { "Token measurement is off (OBSERVABILITY_ENABLED=false)" }
+        null
+    }
+    val prices = TokenPrices(referenceModel = config.costReferenceModel)
+    val meter = observabilityStore?.let { TokenMeter(store = it, prices = prices) }
+
+    val agentService = AgentFactory.create(config, store, sandbox, documentSearchService, meter)
     val messageHandler = MessageHandler(
         agentService,
         config.llmTimeout,
         documentIndexingService,
         documentSearchService,
+        observabilityStore,
+        prices,
     )
 
     // SupervisorJob: one failing request must not cancel the others or the poller.
@@ -106,6 +121,7 @@ fun main(): Unit = runBlocking {
             sandbox?.let { runBlockingShutdown { it.shutdown() } }
             (store as? AutoCloseable)?.close()
             ragStore.close()
+            observabilityStore?.close()
         },
     )
 

@@ -21,6 +21,10 @@ about 150 lines.
   particular CLI, or the steps of a routine.
 - **Memory** — a chat is one long conversation, stored in SQLite so it survives a
   restart. `/new` starts a fresh one.
+- **Token observability** — every run is measured: tokens in and out, what the
+  reasoning cost, how much of each prompt repeats the previous turn, which tool
+  produced the most text, and what it would all cost on a hosted model. `/stats` and
+  `/trace` read it back.
 - **Document RAG** — send the bot a `.txt`, `.md`, `.pdf` or `.docx` file and ask
   about it. Chunks are embedded with `all-MiniLM-L6-v2`, retrieved through sqlite-vec,
   and the agent answers from them and cites the filename. A document belongs to the
@@ -150,6 +154,23 @@ Commands:
 
 In normal chat, the agent has a `search_documents(query)` tool and uses it when a
 question is about uploaded documents.
+
+### Observability
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OBSERVABILITY_ENABLED` | `true` | Measure and store every run |
+| `OBSERVABILITY_DB_PATH` | `data/observability.db` | SQLite file for traces |
+| `COST_REFERENCE_MODEL` | `gpt-4o-mini` | Whose price list turns tokens into dollars |
+
+- `/stats` — the dashboard: totals, averages, tool costs, where context goes.
+- `/trace [run]` — one run turn by turn, newest by default.
+
+```bash
+./gradlew benchmark --args="baseline"    # run the task suite, record it as "baseline"
+./gradlew benchmark --args="optimized"   # the same suite after the optimisations
+./gradlew benchmark --args="report"      # before/after, with the target judged
+```
 
 ## Architecture
 
@@ -590,6 +611,8 @@ src/main/kotlin/
   sandbox/                where commands run
   tools/                  current_datetime, exec, skill, search_documents
   rag/                    extraction, chunking, embeddings, sqlite-vec store
+  observability/          per-run token measurement, traces, dashboards
+  benchmark/              the task suite and the before/after runner
   skills/                 the skill catalogue
   telegram/               long polling, commands, replies
   error/                  failures → short, non-technical replies
