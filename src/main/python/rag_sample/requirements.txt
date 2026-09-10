@@ -1,0 +1,15 @@
+# Core dependencies
+ollama>=0.1.0
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+numpy>=1.24.0
+tiktoken>=0.5.0
+requests>=2.31.0
+
+# Document processing
+pypdf>=3.17.0
+python-docx>=1.1.0
+rich>=14.2.0
+
+# MCP
+fastmcp>=0.1.0
