@@ -33,6 +33,29 @@ class BenchmarkRunnerTest {
     }
 
     @Test
+    fun `an absent answer is judged by what it must not claim`() {
+        val absent = BenchmarkTasks.all.single { it.id == "absent-salary" }
+
+        // Any of these is an honest refusal; a phrase list would have to guess which.
+        listOf(
+            "The documents do not mention the CEO's salary.",
+            "None of the provided chunks mention a salary.",
+            "I could not find that information in your documents.",
+        ).forEach { refusal ->
+            assertTrue(
+                absent.isSatisfiedBy(refusal, setOf("search_documents")),
+                "should count as a refusal: $refusal",
+            )
+        }
+
+        // Inventing a figure fails, however it is dressed up.
+        assertFalse(absent.isSatisfiedBy("The CEO earns $2.5 million a year.", setOf("search_documents")))
+        assertFalse(absent.isSatisfiedBy("Reportedly 750,000 dollars.", setOf("search_documents")))
+        // And declining without looking is not the same as looking and finding nothing.
+        assertFalse(absent.isSatisfiedBy("The documents do not mention it.", emptySet()))
+    }
+
+    @Test
     fun `the suite covers absent answers and a follow-up that needs history`() {
         val ids = BenchmarkTasks.all.map { it.id }
 

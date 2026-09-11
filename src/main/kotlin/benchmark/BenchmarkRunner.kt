@@ -102,6 +102,16 @@ class BenchmarkRunner(
                     "[$variant] ${task.id}: ${if (succeeded) "ok" else "FAILED"}" +
                         (record?.let { ", ${it.totalTokens} tokens, ${it.turns} turns" } ?: "")
                 }
+                if (!succeeded) {
+                    // A bare "FAILED" cannot be acted on. What the agent actually said,
+                    // and which tools it reached for, is the whole diagnosis.
+                    logger.warn {
+                        "[$variant] ${task.id} expected any of ${task.expectAnyOf}" +
+                            (task.expectToolCall?.let { ", and a call to $it" } ?: "") +
+                            "; tools called: ${toolsCalled.ifEmpty { setOf("none") }}" +
+                            "; answer: ${answer.replace('\n', ' ').take(400)}"
+                    }
+                }
                 outcomes += TaskOutcome(task, answer, succeeded, toolsCalled)
             }
 

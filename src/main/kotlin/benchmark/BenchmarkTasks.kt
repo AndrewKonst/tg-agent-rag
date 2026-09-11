@@ -13,16 +13,28 @@ package benchmark
 data class BenchmarkTask(
     val id: String,
     val prompt: String,
-    val expectAnyOf: List<String>,
+    /** Phrasings that count as the right answer. Empty means nothing is required. */
+    val expectAnyOf: List<String> = emptyList(),
     /** A tool the run must have called, when the task is about reaching for it. */
     val expectToolCall: String? = null,
+    /**
+     * A claim the answer must not make.
+     *
+     * For a question the documents cannot answer, listing the phrasings of a refusal
+     * does not work: "not found", "does not mention" and "None of the chunks mention"
+     * are the same answer, and a list of them measures the model's vocabulary rather
+     * than its honesty. What the task actually forbids is inventing a figure, so that
+     * is what is checked.
+     */
+    val mustNotClaim: Regex? = null,
     /** Sent before [prompt] in the same chat, to build up history the task depends on. */
     val setUpTurns: List<String> = emptyList(),
 ) {
     fun isSatisfiedBy(answer: String, toolsCalled: Set<String>): Boolean {
-        val answered = expectAnyOf.any { answer.contains(it, ignoreCase = true) }
+        val answered = expectAnyOf.isEmpty() || expectAnyOf.any { answer.contains(it, ignoreCase = true) }
+        val inventedNothing = mustNotClaim?.containsMatchIn(answer) != true
         val calledWhatItHadTo = expectToolCall == null || expectToolCall in toolsCalled
-        return answered && calledWhatItHadTo
+        return answered && inventedNothing && calledWhatItHadTo
     }
 }
 
@@ -92,40 +104,21 @@ object BenchmarkTasks {
             expectAnyOf = listOf("2026"),
             expectToolCall = "current_datetime",
         ),
+        // The documents are Apple news; neither of these questions has an answer in
+        // them. Both must still search before declining — an agent that refuses
+        // without looking is not being careful, it is being useless — and neither may
+        // produce a figure, because any figure would be invented.
         BenchmarkTask(
             id = "absent-vacation-policy",
             prompt = "According to my documents, how many vacation days do employees get?",
-            expectAnyOf = DENIALS,
+            expectToolCall = "search_documents",
+            mustNotClaim = Regex("""\b\d+([.,]\d+)?\s*(paid\s+)?(vacation|holiday|annual)?\s*days?\b""", RegexOption.IGNORE_CASE),
         ),
         BenchmarkTask(
             id = "absent-salary",
             prompt = "What does my documentation say the CEO's salary is?",
-            expectAnyOf = DENIALS,
+            expectToolCall = "search_documents",
+            mustNotClaim = Regex("""[$€£]\s?\d|\b\d[\d,.]*\s*(k\b|thousand|million|usd|dollars|euros)""", RegexOption.IGNORE_CASE),
         ),
     )
-
-    /**
-     * Ways a model says "it is not in the documents".
-     *
-     * Broad on purpose: the task is to check that the agent declined to invent a
-     * number, not to make it phrase the refusal one particular way.
-     */
-    private val DENIALS: List<String>
-        get() = listOf(
-            "not found",
-            "no information",
-            "not contain",
-            "does not mention",
-            "doesn't mention",
-            "not mentioned",
-            "could not find",
-            "couldn't find",
-            "did not find",
-            "didn't find",
-            "no mention",
-            "not available",
-            "not in the",
-            "no relevant",
-            "nothing about",
-        )
 }

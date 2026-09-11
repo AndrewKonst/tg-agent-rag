@@ -206,8 +206,7 @@ class OllamaIntegrationTest {
             "not found",
             "no information",
             "not contain",
-            "does not mention",
-            "doesn't mention",
+            "not mention",
             "not mentioned",
             "could not find",
             "couldn't find",
@@ -217,6 +216,9 @@ class OllamaIntegrationTest {
             "not available in",
             "not in the",
             "no relevant",
+            "not present",
+            "no information about",
+            "cannot find",
         )
     }
 }
