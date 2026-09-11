@@ -111,7 +111,11 @@ object AgentFactory {
         ).let { plain -> meter?.meter(plain) ?: plain }
 
         return HarnessAgentService(
-            loop = AgentLoop(llm = llm, maxSteps = config.agentMaxSteps),
+            loop = AgentLoop(
+                llm = llm,
+                maxSteps = config.agentMaxSteps,
+                maxToolRounds = config.agentMaxToolRounds,
+            ),
             store = store,
             window = HistoryWindow(config.conversationMaxChars),
             profileFor = { chatId ->

@@ -57,9 +57,28 @@ class AgentLoop(
     private val llm: Llm,
     private val maxSteps: Int,
     private val clock: KoogClock = KoogClock.System,
+    /**
+     * How many rounds of tool calls are **offered** before the model is asked to
+     * answer with what it already has.
+     *
+     * Tool definitions are sent on every request — measured at 44% of this agent's
+     * input — and on a step where a call is not wanted, they are paid for and
+     * ignored. Past this many rounds, and on the last step where a call could not be
+     * executed anyway, the model is called without them.
+     *
+     * This bounds what is offered, not what is honoured: a model that asks for a tool
+     * regardless still gets it, because refusing a call it clearly wanted would cost
+     * the user an answer to save a few tokens. The run stays finite through
+     * [maxSteps] and the duplicate-call guard, as it always did.
+     *
+     * Set it too low and a question needing a second lookup cannot be answered; the
+     * benchmark's two-hop task exists to catch exactly that.
+     */
+    private val maxToolRounds: Int = DEFAULT_MAX_TOOL_ROUNDS,
 ) {
     init {
         require(maxSteps >= 1) { "maxSteps must be at least 1" }
+        require(maxToolRounds >= 1) { "maxToolRounds must be at least 1" }
     }
 
     /**
@@ -75,8 +94,14 @@ class AgentLoop(
         val appended = mutableListOf<Message>()
         val callCounts = mutableMapOf<String, Int>()
 
+        var toolRounds = 0
+
         for (step in 1..maxSteps) {
-            val assistant = llm.complete(transcript, tools.descriptors)
+            // Offer the tools only while a call could still be run. On the last step a
+            // tool call cannot be executed at all, and past the round budget it will
+            // not be — so their definitions would be paid for and then ignored.
+            val offerTools = step < maxSteps && toolRounds < maxToolRounds
+            val assistant = llm.complete(transcript, if (offerTools) tools.descriptors else emptyList())
             transcript += assistant
             appended += assistant
 
@@ -113,6 +138,7 @@ class AgentLoop(
             val toolMessage = Message.User(results, RequestMetaInfo.create(clock))
             transcript += toolMessage
             appended += toolMessage
+            toolRounds++
         }
 
         logger.warn { "Run hit the step limit of $maxSteps" }
@@ -190,6 +216,13 @@ class AgentLoop(
     }
 
     private companion object {
+        /**
+         * Two rounds: one lookup, and a second for a question whose second half
+         * depends on what the first found. Runs needing more are rare enough that
+         * paying for tool definitions on every step to serve them is the worse trade.
+         */
+        const val DEFAULT_MAX_TOOL_ROUNDS = 2
+
         /** The second identical call is nudged; the third ends the run. */
         const val GIVE_UP_AFTER_REPEATS = 2
 

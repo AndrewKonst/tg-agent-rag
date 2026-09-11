@@ -125,6 +125,8 @@ data class AppConfig(
     val llmThinking: Boolean,
     /** Loop guard: how many times the model may be asked before a run is cut short. */
     val agentMaxSteps: Int,
+    /** How many rounds of tool calls a run may make before it must answer. */
+    val agentMaxToolRounds: Int,
     val conversationStore: ConversationStoreKind,
     val conversationDbPath: String,
     /** Roughly how much of a chat's history is replayed into each run. */
@@ -179,7 +181,8 @@ data class AppConfig(
         "AppConfig(llmProvider=$llmProvider, llmModel='$llmModel', " +
             "llmBaseUrl=${llmBaseUrl ?: "<provider default>"}, llmTimeout=$llmTimeout, " +
             "llmCallTimeout=$llmCallTimeout, llmMaxAttempts=$llmMaxAttempts, " +
-            "agentMaxSteps=$agentMaxSteps, thinking=$llmThinking, " +
+            "agentMaxSteps=$agentMaxSteps, maxToolRounds=$agentMaxToolRounds, " +
+            "thinking=$llmThinking, " +
             "conversationStore=$conversationStore, " +
             "conversationMaxChars=$conversationMaxChars, ragDbPath='$ragDbPath', " +
             "sqliteVec=${sqliteVecExtensionPath ?: "<fallback>"}, " +
@@ -214,6 +217,7 @@ data class AppConfig(
         private const val DEFAULT_CALL_TIMEOUT_MS = 60_000L
         private const val DEFAULT_MAX_ATTEMPTS = 3
         private const val DEFAULT_MAX_STEPS = 8
+        private const val DEFAULT_MAX_TOOL_ROUNDS = 2
         private const val DEFAULT_DB_PATH = "data/conversations.db"
 
         /**
@@ -301,6 +305,9 @@ data class AppConfig(
                     ?: DEFAULT_SYSTEM_PROMPT,
                 llmThinking = boolean(source, "LLM_THINKING", default = false),
                 agentMaxSteps = positiveLong(source, "AGENT_MAX_STEPS", DEFAULT_MAX_STEPS.toLong()).toInt(),
+                agentMaxToolRounds = positiveLong(
+                    source, "AGENT_MAX_TOOL_ROUNDS", DEFAULT_MAX_TOOL_ROUNDS.toLong(),
+                ).toInt(),
                 conversationStore = source["CONVERSATION_STORE"]?.trim()?.takeIf { it.isNotEmpty() }
                     ?.let { ConversationStoreKind.parse(it) }
                     ?: ConversationStoreKind.SQLITE,
