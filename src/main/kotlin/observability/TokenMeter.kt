@@ -171,7 +171,12 @@ private class MeteredLlm(
             model = meta.modelId ?: scope.model,
             inputTokens = inputTokens,
             outputTokens = outputTokens,
-            reasoningTokens = PromptAudit.reasoningTokens(reply),
+            // Reasoning is part of the output, so it cannot exceed it — our estimate can,
+            // by a few percent, since the output count is the provider's and this one is
+            // ours. Capping keeps the report from claiming more thinking than the model
+            // produced; the estimate is only ever used to say how much of the output was
+            // thrown away, never as a total.
+            reasoningTokens = PromptAudit.reasoningTokens(reply).coerceAtMost(outputTokens),
             // No provider on this project reports a cache hit; see TokenRecords.
             cachedTokens = 0,
             reusedInputTokens = PromptAudit.reusedPrefixTokens(scope.previousPrompt, messages)

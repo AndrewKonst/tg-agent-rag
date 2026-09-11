@@ -19,6 +19,9 @@ object TokenReport {
     /** Slack for double arithmetic, not for the target itself. */
     private const val TOLERANCE = 1e-6
 
+    /** Smallest gap between a label and its value, so they never touch. */
+    private const val MIN_GAP = 2
+
     /** The whole picture: totals, averages, and where the tokens went. */
     fun dashboard(
         runs: List<RunRecord>,
@@ -48,7 +51,7 @@ object TokenReport {
         appendLine(row("  Reused input", compact(reused), indent = 2))
         appendLine(row("  Reasoning (discarded)", compact(reasoning), indent = 2))
         appendLine()
-        appendLine(row("Estimated cost", "$" + "%.2f".format(runs.sumOf { it.estimatedCostUsd })))
+        appendLine(row("Estimated cost", money(runs.sumOf { it.estimatedCostUsd })))
         appendLine(row("  billed as", prices.referenceModel, indent = 2))
         appendLine()
         appendLine("Average task")
@@ -125,7 +128,7 @@ object TokenReport {
         appendLine(row("Total", "${compact(run.totalTokens.toLong())} tokens"))
         appendLine(row("  new input", compact(run.newInputTokens.toLong()), indent = 2))
         appendLine(row("  repeated input", compact(run.reusedInputTokens.toLong()), indent = 2))
-        appendLine(row("Cost", "$" + "%.4f".format(run.estimatedCostUsd)))
+        appendLine(row("Cost", money(run.estimatedCostUsd)))
         appendLine(row("Stopped because", run.stopReason))
 
         val worst = llmCalls.maxByOrNull { it.inputTokens }
@@ -234,8 +237,29 @@ object TokenReport {
     private fun List<RunRecord>.averageOrZero(of: (RunRecord) -> Double): Double =
         if (isEmpty()) 0.0 else sumOf(of) / size
 
-    private fun row(label: String, value: String, indent: Int = 0) =
-        label.padEnd(WIDTH - value.length - indent).plus(value)
+    /**
+     * A label on the left, a value on the right.
+     *
+     * The padding is never allowed to vanish: a long label next to a long value would
+     * otherwise run the two together into `search_documents100%`.
+     */
+    private fun row(label: String, value: String, indent: Int = 0): String {
+        val padded = (WIDTH - value.length - indent).coerceAtLeast(label.length + MIN_GAP)
+        return label.padEnd(padded).plus(value)
+    }
+
+    /**
+     * Money, at a precision that shows what was actually spent.
+     *
+     * Two decimals is right for a bill and useless for one local run, which lands
+     * around half a cent — and a report that says `$0.00` after measuring 20k tokens
+     * reads as broken.
+     */
+    private fun money(amount: Double): String = when {
+        amount == 0.0 -> "$0"
+        amount < 0.01 -> "$" + "%.4f".format(amount)
+        else -> "$" + "%.2f".format(amount)
+    }
 
     private fun percent(part: Long, whole: Long): String =
         if (whole <= 0) "0%" else "${(part.toDouble() / whole * 100).roundToInt()}%"

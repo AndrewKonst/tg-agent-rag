@@ -129,19 +129,21 @@ class ObservabilityStore(
         }
     }
 
-    /** Records whether a benchmark run produced an acceptable answer. */
-    fun markSucceeded(runId: String, succeeded: Boolean) {
-        connection.prepareStatement("UPDATE runs SET succeeded = ? WHERE run_id = ?").use { statement ->
-            statement.setInt(1, if (succeeded) 1 else 0)
-            statement.setString(2, runId)
-            statement.executeUpdate()
-        }
-    }
-
-    fun labelVariant(runId: String, variant: String) {
-        connection.prepareStatement("UPDATE runs SET variant = ? WHERE run_id = ?").use { statement ->
-            statement.setString(1, variant)
-            statement.setString(2, runId)
+    /**
+     * Attaches what only the benchmark knows: which task this run was, which arm of
+     * the comparison it belongs to, and whether the answer was acceptable.
+     *
+     * The task id is what makes a before/after readable per task rather than only in
+     * aggregate — an average that improved while one task broke is worth seeing.
+     */
+    fun annotate(runId: String, taskId: String, variant: String, succeeded: Boolean) {
+        connection.prepareStatement(
+            "UPDATE runs SET task_id = ?, variant = ?, succeeded = ? WHERE run_id = ?",
+        ).use { statement ->
+            statement.setString(1, taskId)
+            statement.setString(2, variant)
+            statement.setInt(3, if (succeeded) 1 else 0)
+            statement.setString(4, runId)
             statement.executeUpdate()
         }
     }

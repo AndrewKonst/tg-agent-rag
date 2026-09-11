@@ -277,6 +277,49 @@ class ObservabilityTest {
     }
 
     @Test
+    fun `reasoning is never reported as larger than the output it is part of`() = runTest {
+        ObservabilityStore(Files.createTempFile("obs-reasoning-cap", ".db")).use { store ->
+            val meter = TokenMeter(store)
+
+            // A model that thinks at length and reports a small output count: our estimate
+            // of the thinking would otherwise exceed the provider's measured total.
+            meter.measure(agentId = "test", chatId = 1, model = "qwen3:14b") {
+                AgentLoop(llm = meter.meter(LongThinkingLlm()), maxSteps = 2).run(
+                    listOf(system("A system prompt."), user("Think hard.")),
+                    ToolBox(emptyList()),
+                )
+            }
+
+            val call = store.llmCalls(store.runs().single().runId).single()
+            assertTrue(
+                call.reasoningTokens <= call.outputTokens,
+                "reasoning ${call.reasoningTokens} cannot exceed output ${call.outputTokens}",
+            )
+        }
+    }
+
+    @Test
+    fun `a benchmark run can be tied back to its task and arm`() = runTest {
+        ObservabilityStore(Files.createTempFile("obs-annotate", ".db")).use { store ->
+            val meter = TokenMeter(store)
+            val measured = meter.measure(agentId = "bench", chatId = 900_000, model = "qwen3:14b") {
+                AgentLoop(llm = meter.meter(ScriptedLlm()), maxSteps = 4).run(
+                    listOf(system("A system prompt."), user("Do the thing.")),
+                    ToolBox(listOf(meter.meter(EchoTool()))),
+                )
+            }
+
+            store.annotate(measured.record.runId, taskId = "apple-one-trial", variant = "baseline", succeeded = true)
+
+            val stored = store.runs("baseline").single()
+            // Without the task id, a before/after can only be read in aggregate.
+            assertEquals("apple-one-trial", stored.taskId)
+            assertEquals(true, stored.succeeded)
+            assertTrue(store.runs("optimized").isEmpty(), "the other arm stays empty")
+        }
+    }
+
+    @Test
     fun `a failing run is still recorded`() = runTest {
         ObservabilityStore(Files.createTempFile("obs-failure", ".db")).use { store ->
             val meter = TokenMeter(store)
@@ -328,6 +371,25 @@ class ObservabilityTest {
         assertContains(dashboard, "75%")
         assertContains(dashboard, "Conversation history")
         assertContains(dashboard, "billed as")
+        // A long label next to a long value must not run the two together.
+        assertTrue(
+            dashboard.lines().none { it.contains(Regex("[a-z_]{6,}\\d+%")) },
+            "a label and its value collided:\n$dashboard",
+        )
+    }
+
+    @Test
+    fun `a cost of half a cent is shown, not rounded away to zero`() {
+        val runs = listOf(run(id = "a", input = 16_852, output = 3_379, reused = 1_013, tools = 9))
+
+        val dashboard = TokenReport.dashboard(runs, emptyList())
+
+        // Two decimals would print $0.00 after measuring twenty thousand tokens.
+        assertTrue(
+            dashboard.contains("$0.0"),
+            "expected a visible cost, got:\n$dashboard",
+        )
+        assertTrue(!dashboard.contains("$0.00\n"), "a measured run is not free")
     }
 
     @Test
@@ -436,6 +498,17 @@ class ObservabilityTest {
         durationMillis = 120,
         failed = false,
     )
+
+    /** Thinks at length, and reports a modest output count, as a real provider would. */
+    private class LongThinkingLlm : Llm {
+        override suspend fun complete(
+            messages: List<Message>,
+            tools: List<ToolDescriptor>,
+        ): Message.Assistant = Message.Assistant(
+            "<think>" + "Working through this carefully. ".repeat(60) + "</think>Yes.",
+            ResponseMetaInfo.create(KoogClock.System, inputTokensCount = 100, outputTokensCount = 30),
+        )
+    }
 
     /** Asks for a tool once, then answers. Reports token counts like a real provider. */
     private class ScriptedLlm : Llm {

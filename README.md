@@ -170,7 +170,21 @@ question is about uploaded documents.
 ./gradlew benchmark --args="baseline"    # run the task suite, record it as "baseline"
 ./gradlew benchmark --args="optimized"   # the same suite after the optimisations
 ./gradlew benchmark --args="report"      # before/after, with the target judged
+./gradlew benchmark --args="export"      # write reports/ so the numbers survive
 ```
+
+Traces live in `data/observability.db`, which is git-ignored and is wiped by the next
+run — so a measurement that matters is exported into `reports/`, which is committed:
+
+| File | What it holds |
+| --- | --- |
+| `reports/baseline-dashboard.txt` | The dashboard as it stood before the optimisations |
+| `reports/baseline-runs.csv` | One row per task: tokens, turns, cost, context split |
+| `reports/baseline-calls.csv` | One row per LLM call and per tool call |
+| `reports/comparison.txt` | Before/after, once both arms have been run |
+
+The audit that reads those numbers — where the tokens actually go, and what was done
+about it — is in [TOKEN_AUDIT.md](TOKEN_AUDIT.md).
 
 ## Architecture
 
