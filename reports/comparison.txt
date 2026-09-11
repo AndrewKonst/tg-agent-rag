@@ -2,16 +2,16 @@ BEFORE / AFTER
 ────────────────────────────────────────────────────────
                            baseline  optimized    change
 
-Tokens per task                2.0k        936    -54.2%
-  input                        1.7k        885    -47.4%
-  output                        360         51    -85.8%
-  repeated input                 91         91      0.0%
-Cost per task, USD           0.0005     0.0002    -65.1%
+Tokens per task                2.1k        949    -55.2%
+  input                        1.7k        893    -47.8%
+  output                        407         56    -86.3%
+  repeated input                 93         93      0.0%
+Cost per task, USD           0.0005     0.0002    -66.6%
 Turns per task                  1.9        1.9      0.0%
 Tool calls per task             0.9        0.9      0.0%
-Latency per task, s            15.3        2.8    -82.0%
+Latency per task, s            18.1        2.9    -83.8%
 
 Success rate                   100%       100%      0.0 pp
 
 Target: tokens −30% or better, success rate no worse than −2pp
-MET: tokens -54.2%, success rate +0.0 pp
+MET: tokens -55.2%, success rate +0.0 pp

@@ -27,34 +27,34 @@ Middleware стоит вокруг каждого вызова модели (`Me
 BASELINE
 ────────────────────────────────────────
 
-Tasks completed                       10
+Tasks completed                       11
 
 Total tokens
-  Input                          16.8k
-  Output                          3.6k
-  Reused input                     912
-  Reasoning (discarded)           3.4k
+  Input                          18.8k
+  Output                          4.5k
+  Reused input                    1.0k
+  Reasoning (discarded)           4.3k
 
-Estimated cost                   $0.0047
+Estimated cost                   $0.0055
   billed as                gpt-4o-mini
 
 Average task
-  Tokens                          2.0k
+  Tokens                          2.1k
   Turns                            1.9
   Tool calls                       0.9
-  Latency                        15.3s
+  Latency                        18.1s
 
 Repeated input share                  5%
 Success rate                        100%
 
 Most expensive tools:
-  search_documents  100%  (9.1k, 8 calls)
+  search_documents  100%  (10.4k, 9 calls)
   current_datetime   0%  (12, 1 calls)
 
 Context growth:
-  Tool outputs           ███████████          53%
-  Tool schemas           ██████               29%
-  Conversation history   ██                   9%
+  Tool outputs           ██████████           52%
+  Tool schemas           ██████               28%
+  Conversation history   ██                   11%
   System prompt          ██                   8%
   User task                                   1%
   Chat template etc.                          0%
@@ -97,6 +97,7 @@ Reasoning ≈ 95-100% от output-токенов. За них платят по�
 | Отключено thinking (`OllamaParams(think = false)`) | находка 2 | выход упал на 86%, задержка — на 82% |
 | Сжаты описания инструментов | находка 3 | схемы уменьшились, поведение сохранено |
 | ~~Сжать системный промпт~~ | находка 3 | **откачено**, см. ниже |
+| Схемы отправляются, только пока вызов ещё возможен | схемы | на этой нагрузке **ноль**, см. ниже |
 | Компактная история | находка 5 | не потребовалось: порог взят и без неё |
 
 ## Результат
@@ -106,19 +107,19 @@ BEFORE / AFTER
 ────────────────────────────────────────────────────────
                            baseline  optimized    change
 
-Tokens per task                2.0k        936    -54.2%
-  input                        1.7k        885    -47.4%
-  output                        360         51    -85.8%
-  repeated input                 91         91      0.0%
-Cost per task, USD           0.0005     0.0002    -65.1%
+Tokens per task                2.1k        949    -55.2%
+  input                        1.7k        893    -47.8%
+  output                        407         56    -86.3%
+  repeated input                 93         93      0.0%
+Cost per task, USD           0.0005     0.0002    -66.6%
 Turns per task                  1.9        1.9      0.0%
 Tool calls per task             0.9        0.9      0.0%
-Latency per task, s            15.3        2.8    -82.0%
+Latency per task, s            18.1        2.9    -83.8%
 
 Success rate                   100%       100%      0.0 pp
 
 Target: tokens −30% or better, success rate no worse than −2pp
-MET: tokens -54.2%, success rate +0.0 pp
+MET: tokens -55.2%, success rate +0.0 pp
 ```
 
 Дашборд после оптимизаций:
@@ -127,36 +128,36 @@ MET: tokens -54.2%, success rate +0.0 pp
 OPTIMIZED
 ────────────────────────────────────────
 
-Tasks completed                       10
+Tasks completed                       11
 
 Total tokens
-  Input                           8.9k
-  Output                           509
-  Reused input                     912
+  Input                           9.8k
+  Output                           612
+  Reused input                    1.0k
   Reasoning (discarded)              0
 
-Estimated cost                   $0.0016
+Estimated cost                   $0.0018
   billed as                gpt-4o-mini
 
 Average task
-  Tokens                           936
+  Tokens                           949
   Turns                            1.9
   Tool calls                       0.9
-  Latency                         2.8s
+  Latency                         2.9s
 
 Repeated input share                 10%
 Success rate                        100%
 
 Most expensive tools:
-  search_documents  100%  (2.6k, 8 calls)
+  search_documents  100%  (3.0k, 9 calls)
   current_datetime   0%  (12, 1 calls)
 
 Context growth:
   Tool schemas           █████████            44%
   Tool outputs           ███████              33%
   System prompt          ███                  17%
-  Conversation history   █                    3%
   User task              █                    3%
+  Conversation history   █                    3%
   Chat template etc.                          0%
   (the total is measured; the parts are estimated, and what could not be
    attributed is its own line rather than spread across the others)
@@ -165,6 +166,26 @@ Context growth:
 Побочный эффект, которого не искали: **задержка упала с 15.3 до 2.8 секунд** — почти вся она уходила на генерацию размышлений.
 
 Состав контекста изменился. Теперь самая крупная статья — **схемы инструментов (44%)**, потому что всё остальное ужалось вокруг них. Это и есть следующая цель, если понадобится ещё экономия.
+
+## Нулевой результат: бюджет раундов инструментов
+
+Схемы инструментов после первых трёх оптимизаций стали самой крупной статьёй — 44% входа, 207 токенов в каждом вызове. Идея: не отправлять их там, где цикл всё равно не выполнит вызов — на последнем шаге и после того, как нужные раунды поиска исчерпаны.
+
+Реализовано (`AGENT_MAX_TOOL_ROUNDS`, по умолчанию 2) и **не дало ничего**: −55.2% против −54.2% до этой правки, то есть шум. Арифметика простая: при бюджете в два раунда схемы уходят и на первом turn'е, и на втором, а длиннее двух turn'ов наши прогоны не бывают.
+
+Замер агрессивного варианта:
+
+| Вариант | Токенов на задачу | Схемы на задачу | Success |
+| --- | --- | --- | --- |
+| baseline | 2 120 | 485 | 11/11 |
+| бюджет 2 раунда (по умолчанию) | 949 | 396 | 11/11 |
+| бюджет 1 раунд | 781 | 200 | 11/11 |
+
+Бюджет в один раунд даёт ещё −18% сверху, то есть −63% от базовой линии, и на наборе задач ничего не ломает.
+
+**Но 100% здесь — не доказательство безопасности, а предел набора задач.** Ни одна задача в нём не требует второго поиска: даже написанная специально для этого `two-hop-same-file` решается одним retrieval, потому что он возвращает оба факта сразу. Бюджет в один раунд означает, что агент никогда не сможет уточнить поиск, посмотрев на результаты первого, — и проверить, насколько это больно, нечем.
+
+Поэтому по умолчанию оставлен бюджет 2, а `AGENT_MAX_TOOL_ROUNDS=1` документирован вместе с ценой. Следующий шаг, если экономия понадобится: предлагать на втором раунде только тот инструмент, который уже использовался, — это сохраняет повторный поиск и снимает схему второго инструмента.
 
 ## Отрицательный результат: сжатие системного промпта
 
