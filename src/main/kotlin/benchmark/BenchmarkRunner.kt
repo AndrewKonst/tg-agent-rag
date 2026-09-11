@@ -89,10 +89,9 @@ class BenchmarkRunner(
 
                 // The run the meter just stored for this chat is this task's run.
                 val record = observability.runs(limit = 200).firstOrNull { it.chatId == chatId }
-                val toolsCalled = record
-                    ?.let { observability.toolCalls(it.runId).map { call -> call.toolName }.toSet() }
-                    .orEmpty()
-                val succeeded = task.isSatisfiedBy(answer, toolsCalled)
+                val toolCallsMade = record?.let { observability.toolCalls(it.runId) }.orEmpty()
+                val toolsCalled = toolCallsMade.map { it.toolName }.toSet()
+                val succeeded = task.isSatisfiedBy(answer, toolsCalled, toolCallsMade.size)
 
                 if (record != null) {
                     observability.annotate(record.runId, task.id, variant, succeeded)
@@ -109,6 +108,7 @@ class BenchmarkRunner(
                         "[$variant] ${task.id} expected any of ${task.expectAnyOf}" +
                             (task.expectToolCall?.let { ", and a call to $it" } ?: "") +
                             "; tools called: ${toolsCalled.ifEmpty { setOf("none") }}" +
+                            " (${toolCallsMade.size} call(s), needed ${task.minToolCalls})" +
                             "; answer: ${answer.replace('\n', ' ').take(400)}"
                     }
                 }

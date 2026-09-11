@@ -27,14 +27,22 @@ data class BenchmarkTask(
      * is what is checked.
      */
     val mustNotClaim: Regex? = null,
+    /**
+     * How many tool calls the task needs at the least.
+     *
+     * A task that cannot be done in one lookup is the only thing that catches an
+     * optimisation which quietly takes the tools away after the first one.
+     */
+    val minToolCalls: Int = 0,
     /** Sent before [prompt] in the same chat, to build up history the task depends on. */
     val setUpTurns: List<String> = emptyList(),
 ) {
-    fun isSatisfiedBy(answer: String, toolsCalled: Set<String>): Boolean {
+    fun isSatisfiedBy(answer: String, toolsCalled: Set<String>, toolCallCount: Int = toolsCalled.size): Boolean {
         val answered = expectAnyOf.isEmpty() || expectAnyOf.any { answer.contains(it, ignoreCase = true) }
         val inventedNothing = mustNotClaim?.containsMatchIn(answer) != true
         val calledWhatItHadTo = expectToolCall == null || expectToolCall in toolsCalled
-        return answered && inventedNothing && calledWhatItHadTo
+        val lookedEnough = toolCallCount >= minToolCalls
+        return answered && inventedNothing && calledWhatItHadTo && lookedEnough
     }
 }
 
@@ -97,6 +105,22 @@ object BenchmarkTasks {
             // that still has the previous exchange. This is the task that catches
             // context trimming taken too far.
             setUpTurns = listOf("What do new iPhone buyers get, according to my documents?"),
+        ),
+        // A question in two parts, where the second is about whatever the first one
+        // found. It was written to force two rounds of lookups and does not: one
+        // retrieval returns both facts, and the agent answers in a single round.
+        //
+        // The requirement is therefore on the answer, not on the mechanism. Demanding
+        // two calls would fail an agent for being more efficient than expected, which
+        // is the opposite of what this suite is for — and it did exactly that on the
+        // baseline before the requirement was dropped.
+        BenchmarkTask(
+            id = "two-hop-same-file",
+            prompt = "Which of my files mentions the Apple One trial? Then tell me what that " +
+                "same file says about macOS.",
+            expectAnyOf = listOf("macOS"),
+            expectToolCall = "search_documents",
+            minToolCalls = 1,
         ),
         BenchmarkTask(
             id = "current-year",
