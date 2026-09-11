@@ -65,7 +65,11 @@ fun main(): Unit = runBlocking {
         embeddingDimension = embeddings.dimension,
         embeddingModel = embeddings.modelName,
     )
-    val documentSearchService = DocumentSearchService(store = ragStore, embeddings = embeddings)
+    val documentSearchService = DocumentSearchService(
+        store = ragStore,
+        embeddings = embeddings,
+        topK = config.ragTopK,
+    )
     val documentIndexingService = DocumentIndexingService(
         extractor = DocumentTextExtractor(maxBytes = config.ragMaxDocumentBytes),
         embeddings = embeddings,

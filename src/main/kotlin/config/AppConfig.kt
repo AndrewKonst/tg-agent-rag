@@ -116,8 +116,17 @@ data class AppConfig(
     /** How many times one model call may be retried after a transient failure. */
     val llmMaxAttempts: Int,
     val systemPrompt: String,
+    /**
+     * Whether a reasoning model is allowed to think before answering.
+     *
+     * Off by default: this bot strips the `<think>` block before showing an answer and
+     * never stores it, so the tokens it costs buy nothing.
+     */
+    val llmThinking: Boolean,
     /** Loop guard: how many times the model may be asked before a run is cut short. */
     val agentMaxSteps: Int,
+    /** How many rounds of tool calls a run may make before it must answer. */
+    val agentMaxToolRounds: Int,
     val conversationStore: ConversationStoreKind,
     val conversationDbPath: String,
     /** Roughly how much of a chat's history is replayed into each run. */
@@ -153,6 +162,10 @@ data class AppConfig(
     val embeddingDimension: Int,
     /** Largest document accepted for indexing, in bytes. */
     val ragMaxDocumentBytes: Long,
+    /** How many chunks a search returns. */
+    val ragTopK: Int,
+    /** How much of each returned chunk reaches the model, in characters. */
+    val ragExcerptChars: Int,
     /** Whether every run is measured and stored for the token audit. */
     val observabilityEnabled: Boolean,
     val observabilityDbPath: String,
@@ -168,16 +181,30 @@ data class AppConfig(
         "AppConfig(llmProvider=$llmProvider, llmModel='$llmModel', " +
             "llmBaseUrl=${llmBaseUrl ?: "<provider default>"}, llmTimeout=$llmTimeout, " +
             "llmCallTimeout=$llmCallTimeout, llmMaxAttempts=$llmMaxAttempts, " +
-            "agentMaxSteps=$agentMaxSteps, conversationStore=$conversationStore, " +
+            "agentMaxSteps=$agentMaxSteps, maxToolRounds=$agentMaxToolRounds, " +
+            "thinking=$llmThinking, " +
+            "conversationStore=$conversationStore, " +
             "conversationMaxChars=$conversationMaxChars, ragDbPath='$ragDbPath', " +
             "sqliteVec=${sqliteVecExtensionPath ?: "<fallback>"}, " +
             "embeddings=$embeddingProvider/'$embeddingModel'/${embeddingDimension}d, " +
+            "ragTopK=$ragTopK, ragExcerpt=${ragExcerptChars}ch, " +
             "observability=${if (observabilityEnabled) observabilityDbPath else "off"}, " +
             "execSandbox=$execSandbox, " +
             "owners=${ownerChatIds.size}, execTimeout=$execTimeout, " +
             "telegramBotToken=***, llmApiKey=***)"
 
     companion object {
+        /**
+         * Sent on every request — and left alone, deliberately.
+         *
+         * Shortening it from 366 characters to 208 saved 8% of input and cost 10
+         * points of success rate: asked something its documents could answer without
+         * the words "my documents" in the question, the agent stopped searching and
+         * answered from memory, once inventing a filename to cite. Measured, reverted,
+         * and written up in TOKEN_AUDIT.md as a negative result. The wording below is
+         * load-bearing; the tokens are in the tool schemas and the retrieval output,
+         * not here.
+         */
         const val DEFAULT_SYSTEM_PROMPT: String =
             "You are a helpful assistant answering inside a Telegram chat. " +
                 "Keep answers concise and easy to read on a phone. " +
@@ -190,6 +217,7 @@ data class AppConfig(
         private const val DEFAULT_CALL_TIMEOUT_MS = 60_000L
         private const val DEFAULT_MAX_ATTEMPTS = 3
         private const val DEFAULT_MAX_STEPS = 8
+        private const val DEFAULT_MAX_TOOL_ROUNDS = 2
         private const val DEFAULT_DB_PATH = "data/conversations.db"
 
         /**
@@ -205,6 +233,24 @@ data class AppConfig(
         private const val DEFAULT_EXEC_WORKDIR = "data/workspace"
         private const val DEFAULT_SKILLS_DIR = "skills"
         private const val DEFAULT_RAG_DB_PATH = "data/rag.db"
+
+        /**
+         * Three chunks, not five.
+         *
+         * The audit measured retrieval output at 64% of everything the agent sends,
+         * and the answer was in the first three results in every benchmark task that
+         * had one. Two would be brittle — a fact that straddles a chunk boundary can
+         * land in the third — so three is the point where the saving stops being free.
+         */
+        private const val DEFAULT_TOP_K = 3
+
+        /**
+         * How much of a chunk the model actually needs.
+         *
+         * Chunks are a thousand characters because that is a good size to embed, not
+         * because the model needs all of it to answer.
+         */
+        private const val DEFAULT_EXCERPT_CHARS = 400
 
         /**
          * 20 MB. Big enough for any realistic report, small enough that one upload
@@ -257,7 +303,11 @@ data class AppConfig(
                 llmMaxAttempts = positiveLong(source, "LLM_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS.toLong()).toInt(),
                 systemPrompt = source["SYSTEM_PROMPT"]?.trim()?.takeIf { it.isNotEmpty() }
                     ?: DEFAULT_SYSTEM_PROMPT,
+                llmThinking = boolean(source, "LLM_THINKING", default = false),
                 agentMaxSteps = positiveLong(source, "AGENT_MAX_STEPS", DEFAULT_MAX_STEPS.toLong()).toInt(),
+                agentMaxToolRounds = positiveLong(
+                    source, "AGENT_MAX_TOOL_ROUNDS", DEFAULT_MAX_TOOL_ROUNDS.toLong(),
+                ).toInt(),
                 conversationStore = source["CONVERSATION_STORE"]?.trim()?.takeIf { it.isNotEmpty() }
                     ?.let { ConversationStoreKind.parse(it) }
                     ?: ConversationStoreKind.SQLITE,
@@ -296,6 +346,10 @@ data class AppConfig(
                 ragMaxDocumentBytes = positiveLong(
                     source, "RAG_MAX_DOCUMENT_BYTES", DEFAULT_MAX_DOCUMENT_BYTES,
                 ),
+                ragTopK = positiveLong(source, "RAG_TOP_K", DEFAULT_TOP_K.toLong()).toInt(),
+                ragExcerptChars = positiveLong(
+                    source, "RAG_EXCERPT_CHARS", DEFAULT_EXCERPT_CHARS.toLong(),
+                ).toInt(),
                 observabilityEnabled = boolean(source, "OBSERVABILITY_ENABLED", default = true),
                 observabilityDbPath = source["OBSERVABILITY_DB_PATH"]?.trim()?.takeIf { it.isNotEmpty() }
                     ?: ObservabilityStore.DEFAULT_DB_PATH,

@@ -4,6 +4,7 @@ import ai.koog.agents.core.tools.ToolDescriptor
 import ai.koog.prompt.Prompt
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
+import ai.koog.prompt.params.LLMParams
 import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -44,6 +45,13 @@ class KoogLlm(
     private val model: LLModel,
     private val callTimeout: Duration,
     private val maxAttempts: Int,
+    /**
+     * Provider-specific request parameters.
+     *
+     * Carried here rather than hard-coded because what they mean differs by provider:
+     * [AgentFactory] is the one place that knows which one is in play.
+     */
+    private val params: LLMParams = LLMParams(),
 ) : Llm {
 
     override suspend fun complete(
@@ -53,7 +61,7 @@ class KoogLlm(
         logger.debug { "LLM call (attempt $attempt): ${messages.size} messages, ${tools.size} tools" }
 
         val reply = withTimeout(callTimeout) {
-            executor.execute(Prompt(messages, PROMPT_ID), model, tools)
+            executor.execute(Prompt(messages, PROMPT_ID, params), model, tools)
         }
 
         reply.metaInfo.totalTokensCount?.let { total ->
