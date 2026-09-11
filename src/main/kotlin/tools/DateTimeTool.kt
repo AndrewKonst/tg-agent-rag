@@ -22,13 +22,12 @@ class DateTimeTool : AgentTool {
 
     override val descriptor = ToolDescriptor(
         name = "current_datetime",
-        description = "Returns the current date and time. Call this whenever the answer " +
-            "depends on what the date or time is right now.",
+        description = "Returns the current date and time.",
         requiredParameters = emptyList(),
         optionalParameters = listOf(
             ToolParameterDescriptor(
                 name = "time_zone",
-                description = "IANA time zone id, for example 'Europe/Minsk' or 'UTC'. Defaults to UTC.",
+                description = "IANA time zone id. Defaults to UTC.",
                 type = ToolParameterType.String,
             ),
         ),

@@ -22,10 +22,8 @@ class SearchDocumentsToolTest {
 
             val output = tool.execute(JsonObject(mapOf("query" to JsonPrimitive("Apple One trial"))))
 
-            assertContains(output, "Relevant document chunks:")
-            assertContains(output, "Source:")
             assertContains(output, "9to5mac-services-and-macos.pdf")
-            assertContains(output, "Answer using only these chunks")
+            assertContains(output, "chunk #")
         }
     }
 

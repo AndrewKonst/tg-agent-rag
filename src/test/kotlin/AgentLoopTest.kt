@@ -158,6 +158,56 @@ class AgentLoopTest {
         Message.User(userText, RequestMetaInfo.Empty),
     )
 
+    @Test
+    fun `tools are not offered on a step where a call could not be run`() = runTest {
+        // The last step cannot execute a tool call — the loop returns instead — so the
+        // definitions would be paid for and ignored.
+        val llm = LlmStub { call, _ ->
+            if (call < 3) assistantCall("id-$call", "echo", """{"text":"x"}""") else assistant("done")
+        }
+        val tools = ToolBox(listOf(EchoTool()))
+
+        AgentLoop(llm = llm, maxSteps = 3, maxToolRounds = 5).run(conversation("go"), tools)
+
+        assertEquals(listOf(1, 1, 0), llm.offeredToolCounts, "the final step should be asked without tools")
+    }
+
+    @Test
+    fun `a second lookup is still possible within the round budget`() = runTest {
+        val llm = LlmStub { call, _ ->
+            if (call <= 2) assistantCall("id-$call", "echo", """{"text":"$call"}""") else assistant("done")
+        }
+        val tool = EchoTool()
+
+        val run = AgentLoop(llm = llm, maxSteps = 8, maxToolRounds = 2).run(
+            conversation("a question whose second half depends on the first answer"),
+            ToolBox(listOf(tool)),
+        )
+
+        assertEquals(2, tool.invocations.size, "two rounds have to remain possible")
+        assertEquals(StopReason.COMPLETED, run.stopReason)
+    }
+
+    @Test
+    fun `past the round budget the model is asked to answer with what it has`() = runTest {
+        val llm = LlmStub { call, _ ->
+            if (call <= 3) assistantCall("id-$call", "echo", """{"text":"$call"}""") else assistant("done")
+        }
+        val tool = EchoTool()
+
+        AgentLoop(llm = llm, maxSteps = 8, maxToolRounds = 1).run(
+            conversation("go"),
+            ToolBox(listOf(tool)),
+        )
+
+        // The budget bounds what is offered: after one round, no definitions are sent.
+        assertEquals(listOf(1, 0, 0), llm.offeredToolCounts.take(3))
+        // It does not bound what is honoured. This stub keeps calling a tool it was
+        // never offered — a real model has no name to call — and the loop runs it
+        // rather than costing the user an answer to save a few tokens.
+        assertEquals(3, tool.invocations.size)
+    }
+
     private fun assistant(text: String) = Message.Assistant(text, ResponseMetaInfo.Empty)
 
     private fun assistantCall(id: String, tool: String, args: String) =
@@ -178,11 +228,15 @@ class AgentLoopTest {
         /** The conversation as it looked at each call, for asserting on what the model saw. */
         val prompts = mutableListOf<List<Message>>()
 
+        /** How many tool definitions each call was offered, in order. */
+        val offeredToolCounts = mutableListOf<Int>()
+
         override suspend fun complete(
             messages: List<Message>,
             tools: List<ToolDescriptor>,
         ): Message.Assistant {
             prompts += messages.toList()
+            offeredToolCounts += tools.size
             return reply(++calls, messages)
         }
     }

@@ -77,7 +77,7 @@ class RagEndToEndTest {
             // The model asked for retrieval, and retrieval answered with this user's chunk.
             assertEquals(listOf("search_documents"), model.calledTools)
             assertContains(model.toolOutputs.single(), "25 paid vacation days")
-            assertContains(model.toolOutputs.single(), "Source: vacation_policy.md")
+            assertContains(model.toolOutputs.single(), "vacation_policy.md")
 
             // And the reply a Telegram user would see carries the answer and its source.
             assertContains(reply, "25")

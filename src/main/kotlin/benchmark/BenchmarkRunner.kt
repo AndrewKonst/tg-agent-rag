@@ -55,7 +55,11 @@ class BenchmarkRunner(
             embeddingDimension = embeddings.dimension,
             embeddingModel = embeddings.modelName,
         ).use { ragStore ->
-            val search = DocumentSearchService(store = ragStore, embeddings = embeddings)
+            val search = DocumentSearchService(
+                store = ragStore,
+                embeddings = embeddings,
+                topK = config.ragTopK,
+            )
             val meter = TokenMeter(observability, prices)
             val outcomes = mutableListOf<TaskOutcome>()
             var failures = 0
