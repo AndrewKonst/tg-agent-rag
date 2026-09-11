@@ -1,0 +1,36 @@
+OPTIMIZED
+────────────────────────────────────────
+
+Tasks completed                       10
+
+Total tokens
+  Input                           8.9k
+  Output                           509
+  Reused input                     912
+  Reasoning (discarded)              0
+
+Estimated cost                   $0.0016
+  billed as                gpt-4o-mini
+
+Average task
+  Tokens                           936
+  Turns                            1.9
+  Tool calls                       0.9
+  Latency                         2.8s
+
+Repeated input share                 10%
+Success rate                        100%
+
+Most expensive tools:
+  search_documents  100%  (2.6k, 8 calls)
+  current_datetime   0%  (12, 1 calls)
+
+Context growth:
+  Tool schemas           █████████            44%
+  Tool outputs           ███████              33%
+  System prompt          ███                  17%
+  Conversation history   █                    3%
+  User task              █                    3%
+  Chat template etc.                          0%
+  (the total is measured; the parts are estimated, and what could not be
+   attributed is its own line rather than spread across the others)

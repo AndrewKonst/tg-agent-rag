@@ -181,10 +181,13 @@ run — so a measurement that matters is exported into `reports/`, which is comm
 | `reports/baseline-dashboard.txt` | The dashboard as it stood before the optimisations |
 | `reports/baseline-runs.csv` | One row per task: tokens, turns, cost, context split |
 | `reports/baseline-calls.csv` | One row per LLM call and per tool call |
-| `reports/comparison.txt` | Before/after, once both arms have been run |
+| `reports/optimized-dashboard.txt` | The same, after the optimisations |
+| `reports/comparison.txt` | Before/after, with the target judged |
 
 The audit that reads those numbers — where the tokens actually go, and what was done
-about it — is in [TOKEN_AUDIT.md](TOKEN_AUDIT.md).
+about it — is in [TOKEN_AUDIT.md](TOKEN_AUDIT.md). The short version: 54% fewer tokens
+per task at the same success rate, and answers that arrive in 2.8 seconds instead of
+15.3.
 
 ## Architecture
 
