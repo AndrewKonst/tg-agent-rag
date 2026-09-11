@@ -5,11 +5,13 @@ import ai.koog.prompt.executor.clients.anthropic.AnthropicClientSettings
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
+import ai.koog.prompt.executor.ollama.client.OllamaParams
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.executor.model.PromptExecutorBuilder
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
+import ai.koog.prompt.params.LLMParams
 import config.AppConfig
 import config.LlmProvider
 import conversation.ConversationStore
@@ -105,6 +107,7 @@ object AgentFactory {
             model = model,
             callTimeout = config.llmCallTimeout,
             maxAttempts = config.llmMaxAttempts,
+            params = requestParams(config),
         ).let { plain -> meter?.meter(plain) ?: plain }
 
         return HarnessAgentService(
@@ -162,6 +165,23 @@ object AgentFactory {
                 }
             }.map { tool -> meter?.meter(tool) ?: tool },
         )
+
+    /**
+     * Per-request parameters for the provider in use.
+     *
+     * The one that matters here is thinking. A reasoning model spends nearly all of
+     * its output on a `<think>` block that this bot strips before anyone sees it and
+     * never stores — so leaving it on means paying for text that is discarded by
+     * design. `LLM_THINKING=true` turns it back on for a model that answers worse
+     * without it; the benchmark's success rate is how that is decided rather than by
+     * taste.
+     */
+    private fun requestParams(config: AppConfig): LLMParams = when (config.llmProvider) {
+        LlmProvider.OLLAMA -> OllamaParams(think = config.llmThinking)
+        // Neither hosted provider exposes this as a request parameter; a model that
+        // reasons does so as part of the model, not as an option.
+        LlmProvider.OPENAI, LlmProvider.ANTHROPIC -> LLMParams()
+    }
 
     /** Appends the skill catalogue to the system prompt, if there is one. */
     private fun systemPromptWithSkills(systemPrompt: String, catalog: SkillCatalog): String =

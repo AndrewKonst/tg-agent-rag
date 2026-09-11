@@ -116,6 +116,13 @@ data class AppConfig(
     /** How many times one model call may be retried after a transient failure. */
     val llmMaxAttempts: Int,
     val systemPrompt: String,
+    /**
+     * Whether a reasoning model is allowed to think before answering.
+     *
+     * Off by default: this bot strips the `<think>` block before showing an answer and
+     * never stores it, so the tokens it costs buy nothing.
+     */
+    val llmThinking: Boolean,
     /** Loop guard: how many times the model may be asked before a run is cut short. */
     val agentMaxSteps: Int,
     val conversationStore: ConversationStoreKind,
@@ -172,7 +179,8 @@ data class AppConfig(
         "AppConfig(llmProvider=$llmProvider, llmModel='$llmModel', " +
             "llmBaseUrl=${llmBaseUrl ?: "<provider default>"}, llmTimeout=$llmTimeout, " +
             "llmCallTimeout=$llmCallTimeout, llmMaxAttempts=$llmMaxAttempts, " +
-            "agentMaxSteps=$agentMaxSteps, conversationStore=$conversationStore, " +
+            "agentMaxSteps=$agentMaxSteps, thinking=$llmThinking, " +
+            "conversationStore=$conversationStore, " +
             "conversationMaxChars=$conversationMaxChars, ragDbPath='$ragDbPath', " +
             "sqliteVec=${sqliteVecExtensionPath ?: "<fallback>"}, " +
             "embeddings=$embeddingProvider/'$embeddingModel'/${embeddingDimension}d, " +
@@ -183,6 +191,17 @@ data class AppConfig(
             "telegramBotToken=***, llmApiKey=***)"
 
     companion object {
+        /**
+         * Sent on every request — and left alone, deliberately.
+         *
+         * Shortening it from 366 characters to 208 saved 8% of input and cost 10
+         * points of success rate: asked something its documents could answer without
+         * the words "my documents" in the question, the agent stopped searching and
+         * answered from memory, once inventing a filename to cite. Measured, reverted,
+         * and written up in TOKEN_AUDIT.md as a negative result. The wording below is
+         * load-bearing; the tokens are in the tool schemas and the retrieval output,
+         * not here.
+         */
         const val DEFAULT_SYSTEM_PROMPT: String =
             "You are a helpful assistant answering inside a Telegram chat. " +
                 "Keep answers concise and easy to read on a phone. " +
@@ -280,6 +299,7 @@ data class AppConfig(
                 llmMaxAttempts = positiveLong(source, "LLM_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS.toLong()).toInt(),
                 systemPrompt = source["SYSTEM_PROMPT"]?.trim()?.takeIf { it.isNotEmpty() }
                     ?: DEFAULT_SYSTEM_PROMPT,
+                llmThinking = boolean(source, "LLM_THINKING", default = false),
                 agentMaxSteps = positiveLong(source, "AGENT_MAX_STEPS", DEFAULT_MAX_STEPS.toLong()).toInt(),
                 conversationStore = source["CONVERSATION_STORE"]?.trim()?.takeIf { it.isNotEmpty() }
                     ?.let { ConversationStoreKind.parse(it) }

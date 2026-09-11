@@ -31,13 +31,19 @@ class SearchDocumentsTool(
 
     override val descriptor = ToolDescriptor(
         name = "search_documents",
-        description = "Searches the current user's uploaded documents. Call this when the user asks " +
-            "about information that may be in their documents. Use only the returned chunks as " +
-            "document evidence, and cite the source filename in the final answer.",
+        // Every word here is sent on every request, whether the tool is used or not —
+        // the schemas were measured at 29% of all input. But cutting it to "Searches
+        // the user's uploaded documents" cost a benchmark task: asked something its
+        // documents could answer, without the words "my documents" in the question,
+        // the model answered from memory and invented a filename to cite. What it
+        // needs is when to call this, not how to use the result — that is in the
+        // system prompt, once.
+        description = "Searches the user's uploaded documents. Use it for any question " +
+            "their documents might answer.",
         requiredParameters = listOf(
             ToolParameterDescriptor(
                 name = "query",
-                description = "The user's question or a concise search query for the document collection.",
+                description = "What to look for.",
                 type = ToolParameterType.String,
             ),
         ),
