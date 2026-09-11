@@ -212,10 +212,12 @@ object TokenReport {
     private fun contextBars(runs: List<RunRecord>): String {
         val total = runs.fold(ContextBreakdown()) { sum, run -> sum + run.context }
         val parts = listOf(
-            "Conversation history" to total.conversationHistory,
             "Tool outputs" to total.toolOutputs,
+            "Tool schemas" to total.toolSchemas,
+            "Conversation history" to total.conversationHistory,
             "System prompt" to total.systemPrompt,
             "User task" to total.userTask,
+            "Chat template etc." to total.overhead,
         ).sortedByDescending { it.second }
 
         val sum = total.total.coerceAtLeast(1)
@@ -225,7 +227,10 @@ object TokenReport {
                 val bar = "█".repeat((share * 20).roundToInt())
                 appendLine("  %-22s %-20s %s".format(label, bar, percent(tokens.toLong(), sum.toLong())))
             }
-            append("  (the total is measured; the split is estimated per message)")
+            append(
+                "  (the total is measured; the parts are estimated, and what could not be\n" +
+                    "   attributed is its own line rather than spread across the others)",
+            )
         }
     }
 

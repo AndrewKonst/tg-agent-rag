@@ -160,7 +160,7 @@ private class MeteredLlm(
         val meta = reply.metaInfo
         val reported = meta.inputTokensCount != null || meta.outputTokensCount != null
         val inputTokens = meta.inputTokensCount
-            ?: PromptAudit.breakdown(messages, measuredInputTokens = null).total
+            ?: PromptAudit.breakdown(messages, tools).total
         val outputTokens = meta.outputTokensCount
             ?: TokenEstimator.countTokens(reply.textContent())
 
@@ -183,7 +183,7 @@ private class MeteredLlm(
                 .coerceAtMost(inputTokens),
             latencyMillis = latency,
             estimatedCostUsd = prices.cost(scope.model, inputTokens, outputTokens),
-            context = PromptAudit.breakdown(messages, inputTokens),
+            context = PromptAudit.breakdown(messages, tools, inputTokens),
             tokensReportedByProvider = reported,
         )
 

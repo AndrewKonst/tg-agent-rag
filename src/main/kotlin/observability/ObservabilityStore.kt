@@ -53,6 +53,8 @@ class ObservabilityStore(
                     ctx_task        INTEGER NOT NULL,
                     ctx_history     INTEGER NOT NULL,
                     ctx_tools       INTEGER NOT NULL,
+                    ctx_schemas     INTEGER NOT NULL DEFAULT 0,
+                    ctx_overhead    INTEGER NOT NULL DEFAULT 0,
                     variant         TEXT
                 )
                 """.trimIndent(),
@@ -76,6 +78,8 @@ class ObservabilityStore(
                     ctx_task        INTEGER NOT NULL,
                     ctx_history     INTEGER NOT NULL,
                     ctx_tools       INTEGER NOT NULL,
+                    ctx_schemas     INTEGER NOT NULL DEFAULT 0,
+                    ctx_overhead    INTEGER NOT NULL DEFAULT 0,
                     provider_tokens INTEGER NOT NULL
                 )
                 """.trimIndent(),
@@ -100,7 +104,35 @@ class ObservabilityStore(
             statement.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_run ON tool_calls(run_id)")
             statement.execute("CREATE INDEX IF NOT EXISTS idx_runs_variant ON runs(variant)")
         }
+        addMissingColumns()
         storeLogger.info { "Observability store: sqlite at ${databasePath.toAbsolutePath()}" }
+    }
+
+    /**
+     * Brings a database made by an earlier version up to date.
+     *
+     * A trace database outlives the code that wrote it, and `CREATE TABLE IF NOT
+     * EXISTS` will not add a column to a table that already exists — so without this,
+     * the first insert after an upgrade fails on a file that was perfectly good.
+     */
+    private fun addMissingColumns() {
+        val additions = mapOf(
+            "runs" to listOf("ctx_schemas", "ctx_overhead"),
+            "llm_calls" to listOf("ctx_schemas", "ctx_overhead"),
+        )
+        additions.forEach { (table, columns) ->
+            val existing = connection.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA table_info($table)").use { rows ->
+                    buildSet { while (rows.next()) add(rows.getString("name")) }
+                }
+            }
+            columns.filterNot { it in existing }.forEach { column ->
+                connection.createStatement().use { statement ->
+                    statement.execute("ALTER TABLE $table ADD COLUMN $column INTEGER NOT NULL DEFAULT 0")
+                }
+                storeLogger.info { "Observability store: added $table.$column" }
+            }
+        }
     }
 
     /**
@@ -191,6 +223,8 @@ class ObservabilityStore(
                                     userTask = rows.getInt("ctx_task"),
                                     conversationHistory = rows.getInt("ctx_history"),
                                     toolOutputs = rows.getInt("ctx_tools"),
+                                    toolSchemas = rows.getInt("ctx_schemas"),
+                                    overhead = rows.getInt("ctx_overhead"),
                                 ),
                                 tokensReportedByProvider = rows.getInt("provider_tokens") == 1,
                             ),
@@ -241,8 +275,8 @@ class ObservabilityStore(
                 run_id, agent_id, task_id, chat_id, model, started_at, duration_ms, turns,
                 tool_calls, input_tokens, output_tokens, reasoning_tokens, cached_tokens,
                 reused_tokens, cost_usd, stop_reason, succeeded,
-                ctx_system, ctx_task, ctx_history, ctx_tools, variant
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ctx_system, ctx_task, ctx_history, ctx_tools, ctx_schemas, ctx_overhead, variant
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
         ).use { statement ->
             statement.setString(1, run.runId)
@@ -266,7 +300,9 @@ class ObservabilityStore(
             statement.setInt(19, run.context.userTask)
             statement.setInt(20, run.context.conversationHistory)
             statement.setInt(21, run.context.toolOutputs)
-            statement.setString(22, variant)
+            statement.setInt(22, run.context.toolSchemas)
+            statement.setInt(23, run.context.overhead)
+            statement.setString(24, variant)
             statement.executeUpdate()
         }
     }
@@ -278,8 +314,9 @@ class ObservabilityStore(
             INSERT INTO llm_calls (
                 run_id, turn, timestamp, model, input_tokens, output_tokens, reasoning_tokens,
                 cached_tokens, reused_tokens, latency_ms, cost_usd,
-                ctx_system, ctx_task, ctx_history, ctx_tools, provider_tokens
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ctx_system, ctx_task, ctx_history, ctx_tools, ctx_schemas, ctx_overhead,
+                provider_tokens
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
         ).use { statement ->
             calls.forEach { call ->
@@ -298,7 +335,9 @@ class ObservabilityStore(
                 statement.setInt(13, call.context.userTask)
                 statement.setInt(14, call.context.conversationHistory)
                 statement.setInt(15, call.context.toolOutputs)
-                statement.setInt(16, if (call.tokensReportedByProvider) 1 else 0)
+                statement.setInt(16, call.context.toolSchemas)
+                statement.setInt(17, call.context.overhead)
+                statement.setInt(18, if (call.tokensReportedByProvider) 1 else 0)
                 statement.addBatch()
             }
             statement.executeBatch()
@@ -359,6 +398,8 @@ class ObservabilityStore(
                 userTask = getInt("ctx_task"),
                 conversationHistory = getInt("ctx_history"),
                 toolOutputs = getInt("ctx_tools"),
+                toolSchemas = getInt("ctx_schemas"),
+                overhead = getInt("ctx_overhead"),
             ),
         )
     }

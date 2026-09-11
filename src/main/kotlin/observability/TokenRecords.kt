@@ -48,14 +48,33 @@ data class ContextBreakdown(
     val userTask: Int = 0,
     val conversationHistory: Int = 0,
     val toolOutputs: Int = 0,
+    /**
+     * The tool definitions sent with every request.
+     *
+     * They are not messages, so nothing in the conversation shows them — and they are
+     * paid for on every single call. Measured by subtraction on this project's own
+     * prompt, two tools cost 246 tokens against the system prompt's 73.
+     */
+    val toolSchemas: Int = 0,
+    /**
+     * What the provider counted and we could not account for: the chat template's own
+     * tokens, and the gap between our estimator and the model's tokenizer.
+     *
+     * Kept as its own line rather than spread across the others. Spreading it is what
+     * made the system prompt look like 21% of the context when it is 8%.
+     */
+    val overhead: Int = 0,
 ) {
-    val total: Int get() = systemPrompt + userTask + conversationHistory + toolOutputs
+    val total: Int
+        get() = systemPrompt + userTask + conversationHistory + toolOutputs + toolSchemas + overhead
 
     operator fun plus(other: ContextBreakdown) = ContextBreakdown(
         systemPrompt = systemPrompt + other.systemPrompt,
         userTask = userTask + other.userTask,
         conversationHistory = conversationHistory + other.conversationHistory,
         toolOutputs = toolOutputs + other.toolOutputs,
+        toolSchemas = toolSchemas + other.toolSchemas,
+        overhead = overhead + other.overhead,
     )
 }
 

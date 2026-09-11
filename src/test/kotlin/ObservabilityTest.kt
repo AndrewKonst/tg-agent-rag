@@ -58,7 +58,7 @@ class ObservabilityTest {
             user("The question being asked right now."),
         )
 
-        val breakdown = PromptAudit.breakdown(messages, measuredInputTokens = null)
+        val breakdown = PromptAudit.breakdown(messages)
 
         assertTrue(breakdown.systemPrompt > 0, "system prompt should be counted")
         assertTrue(breakdown.userTask > 0, "the last typed message is the task")
@@ -78,10 +78,55 @@ class ObservabilityTest {
             user("Now."),
         )
 
-        val breakdown = PromptAudit.breakdown(messages, measuredInputTokens = 1_000)
+        val breakdown = PromptAudit.breakdown(messages, emptyList(), measuredInputTokens = 1_000)
 
-        // The provider's number is the truth; the parts are scaled to fit it exactly.
+        // The provider's number is the truth; the parts are reconciled to fit it exactly.
         assertEquals(1_000, breakdown.total)
+    }
+
+    @Test
+    fun `tool schemas are their own line, not spread across the messages`() {
+        val messages = listOf(system("A short system prompt."), user("A short question."))
+        val tools = listOf(
+            tools.DateTimeTool().descriptor,
+            tools.SearchDocumentsTool(1, rag.DocumentSearchService()).descriptor,
+        )
+
+        val withoutTools = PromptAudit.breakdown(messages)
+        val withTools = PromptAudit.breakdown(messages, tools)
+
+        assertTrue(withTools.toolSchemas > 0, "two tool definitions are not free")
+        // The schemas must not inflate the system prompt: that is the bug this fixes.
+        assertEquals(withoutTools.systemPrompt, withTools.systemPrompt)
+        assertTrue(
+            withTools.toolSchemas > withTools.systemPrompt,
+            "measured on this project's own prompt, schemas cost 246 tokens against the " +
+                "system prompt's 73: ${withTools.toolSchemas} vs ${withTools.systemPrompt}",
+        )
+    }
+
+    @Test
+    fun `what cannot be attributed is named, not spread over the parts`() {
+        val messages = listOf(system("A short system prompt."), user("A short question."))
+
+        // The provider charged far more than the messages account for — the chat
+        // template's own tokens. The difference belongs to nobody in particular.
+        val breakdown = PromptAudit.breakdown(messages, emptyList(), measuredInputTokens = 1_000)
+
+        val attributed = PromptAudit.breakdown(messages)
+        assertEquals(attributed.systemPrompt, breakdown.systemPrompt, "the system prompt did not grow")
+        assertEquals(1_000 - attributed.total, breakdown.overhead)
+        assertEquals(1_000, breakdown.total)
+    }
+
+    @Test
+    fun `an overshooting estimate is scaled down instead of inventing overhead`() {
+        val messages = listOf(system("A system prompt long enough to overshoot a tiny measured total."))
+
+        val breakdown = PromptAudit.breakdown(messages, emptyList(), measuredInputTokens = 5)
+
+        assertEquals(5, breakdown.total)
+        assertEquals(0, breakdown.overhead, "there is nothing left over to attribute")
     }
 
     @Test
@@ -89,7 +134,7 @@ class ObservabilityTest {
         // First turn: a system prompt and a question, no history and no tool output.
         val messages = listOf(system("A system prompt."), user("The first question."))
 
-        val breakdown = PromptAudit.breakdown(messages, measuredInputTokens = 343)
+        val breakdown = PromptAudit.breakdown(messages, emptyList(), measuredInputTokens = 343)
 
         assertEquals(0, breakdown.conversationHistory, "there is no history yet: $breakdown")
         assertEquals(0, breakdown.toolOutputs)
@@ -104,7 +149,7 @@ class ObservabilityTest {
             user("The current question."),
         )
 
-        val breakdown = PromptAudit.breakdown(messages, measuredInputTokens = null)
+        val breakdown = PromptAudit.breakdown(messages)
 
         assertTrue(breakdown.toolOutputs > 0, "a user message carrying results is not a person talking")
         assertEquals(0, breakdown.conversationHistory)
@@ -119,11 +164,11 @@ class ObservabilityTest {
         val turnTwo = shared + assistant("Calling a tool.") + toolResult("exec", "result")
 
         val reused = PromptAudit.reusedPrefixTokens(turnOne, turnTwo)
-        val whole = PromptAudit.breakdown(turnTwo, measuredInputTokens = null).total
+        val whole = PromptAudit.breakdown(turnTwo).total
 
         assertTrue(reused > 0, "turn two repeats turn one's prompt")
         assertTrue(reused < whole, "but not the appended part: reused=$reused whole=$whole")
-        assertEquals(PromptAudit.breakdown(turnOne, null).total, reused)
+        assertEquals(PromptAudit.breakdown(turnOne).total, reused)
     }
 
     @Test
@@ -134,7 +179,7 @@ class ObservabilityTest {
 
         val reused = PromptAudit.reusedPrefixTokens(previous, current)
 
-        assertEquals(PromptAudit.breakdown(listOf(system("System.")), null).total, reused)
+        assertEquals(PromptAudit.breakdown(listOf(system("System."))).total, reused)
     }
 
     @Test

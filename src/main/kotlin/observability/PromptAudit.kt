@@ -1,5 +1,6 @@
 package observability
 
+import ai.koog.agents.core.tools.ToolDescriptor
 import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
 import harness.visibleText
@@ -30,10 +31,14 @@ object PromptAudit {
      * history. A user message carrying tool results is not a person talking — it is the
      * loop feeding results back — so it counts as tool output wherever it sits.
      */
-    fun breakdown(messages: List<Message>, measuredInputTokens: Int?): ContextBreakdown {
+    fun breakdown(
+        messages: List<Message>,
+        tools: List<ToolDescriptor> = emptyList(),
+        measuredInputTokens: Int? = null,
+    ): ContextBreakdown {
         val lastTypedUserIndex = messages.indexOfLast { it.isTypedByUser() }
 
-        var breakdown = ContextBreakdown()
+        var breakdown = ContextBreakdown(toolSchemas = schemaTokens(tools))
         messages.forEachIndexed { index, message ->
             val tokens = TokenEstimator.countTokens(message.auditText())
             breakdown = breakdown + when {
@@ -44,7 +49,30 @@ object PromptAudit {
             }
         }
 
-        return if (measuredInputTokens == null) breakdown else breakdown.scaledTo(measuredInputTokens)
+        if (measuredInputTokens == null) return breakdown
+        return breakdown.reconciledWith(measuredInputTokens)
+    }
+
+    /**
+     * Estimates what the tool definitions cost.
+     *
+     * Providers serialise a tool into JSON — name, description, a schema per
+     * parameter — and every call carries all of them. Reconstructing that shape is
+     * closer than counting the description alone, and whatever the estimate misses
+     * lands in [ContextBreakdown.overhead] rather than in a category it did not come
+     * from.
+     */
+    private fun schemaTokens(tools: List<ToolDescriptor>): Int {
+        if (tools.isEmpty()) return 0
+        val json = tools.joinToString(",") { tool ->
+            val parameters = (tool.requiredParameters + tool.optionalParameters).joinToString(",") { parameter ->
+                """"${parameter.name}":{"type":"${parameter.type}","description":"${parameter.description}"}"""
+            }
+            """{"type":"function","function":{"name":"${tool.name}","description":"${tool.description}",""" +
+                """"parameters":{"type":"object","properties":{$parameters},""" +
+                """"required":[${tool.requiredParameters.joinToString(",") { "\"${it.name}\"" }}]}}}"""
+        }
+        return TokenEstimator.countTokens(json)
     }
 
     /**
@@ -79,22 +107,33 @@ object PromptAudit {
         return separateParts + strippedFromText.coerceAtLeast(0)
     }
 
-    private fun ContextBreakdown.scaledTo(target: Int): ContextBreakdown {
+    /**
+     * Makes the parts add up to what the provider charged for.
+     *
+     * Usually the estimate falls short — the chat template's own tokens are real and
+     * invisible to us — and the shortfall becomes [ContextBreakdown.overhead]. Naming
+     * it is the point: the earlier version spread it across the categories in
+     * proportion, which quadrupled the apparent size of the system prompt.
+     *
+     * When the estimate overshoots instead, there is nothing to attribute it to, so
+     * the parts are scaled down to fit.
+     */
+    private fun ContextBreakdown.reconciledWith(measured: Int): ContextBreakdown {
+        if (measured <= 0) return ContextBreakdown()
         val estimated = total
-        if (estimated <= 0 || target <= 0) return ContextBreakdown()
+        if (estimated <= 0) return ContextBreakdown(overhead = measured)
 
-        val factor = target.toDouble() / estimated
+        if (estimated <= measured) return copy(overhead = measured - estimated)
+
+        val factor = measured.toDouble() / estimated
         val scaled = intArrayOf(
             (systemPrompt * factor).toInt(),
             (userTask * factor).toInt(),
             (conversationHistory * factor).toInt(),
             (toolOutputs * factor).toInt(),
+            (toolSchemas * factor).toInt(),
         )
-
-        // The parts must sum to the measured total, and the remainder goes to the
-        // largest of them — never to a fixed one, which would put stray tokens into a
-        // part that is genuinely empty (history on the first turn, say).
-        val remainder = target - scaled.sum()
+        val remainder = measured - scaled.sum()
         if (remainder != 0) {
             val largest = scaled.indices.maxBy { scaled[it] }
             scaled[largest] = (scaled[largest] + remainder).coerceAtLeast(0)
@@ -105,6 +144,7 @@ object PromptAudit {
             userTask = scaled[1],
             conversationHistory = scaled[2],
             toolOutputs = scaled[3],
+            toolSchemas = scaled[4],
         )
     }
 
