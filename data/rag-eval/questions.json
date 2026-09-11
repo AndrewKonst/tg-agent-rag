@@ -1,0 +1,22 @@
+[
+  {
+    "question": "What was Apple's first foldable iPhone called?",
+    "expected_source": "9to5mac-iphone-duo.txt"
+  },
+  {
+    "question": "What adapter did 9to5Mac mention for maximum iPhone 18 Pro fast charging?",
+    "expected_source": "9to5mac-apple-news.md"
+  },
+  {
+    "question": "What price was mentioned for AirPods 5?",
+    "expected_source": "9to5mac-apple-news.md"
+  },
+  {
+    "question": "How long is the Apple One trial for eligible iPhone buyers?",
+    "expected_source": "9to5mac-services-and-macos.pdf"
+  },
+  {
+    "question": "How many additional Siri AI languages are planned for October?",
+    "expected_source": "9to5mac-siri-ai.docx"
+  }
+]

@@ -1,0 +1,31 @@
+9to5Mac Test Document - iPhone Duo
+
+Source: https://9to5mac.com/
+Collected: 2026-09-10
+Format: TXT
+
+This is a short, paraphrased test document created for RAG indexing tests. It
+is based on topics visible on the 9to5Mac homepage, not a copy of a full
+article.
+
+Key facts for retrieval:
+
+1. 9to5Mac featured Apple's foldable iPhone Duo as a major story.
+2. The iPhone Duo was described as Apple's first foldable iPhone.
+3. A hands-on story said the device was shown in the real world after its
+   announcement.
+4. 9to5Mac also reported that Apple published developer resources for iPhone
+   Duo ahead of an October release.
+5. The iPhone Duo was repeatedly grouped with the iPhone 18 Pro in comparison
+   and design-resource coverage.
+
+Useful test questions:
+
+- What was Apple's first foldable iPhone called?
+- Which phone had developer resources published ahead of an October release?
+- Which 9to5Mac topic should be the source for questions about a foldable
+  iPhone?
+
+Expected source:
+
+9to5mac-iphone-duo.txt

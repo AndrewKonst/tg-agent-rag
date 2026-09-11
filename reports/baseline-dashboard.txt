@@ -1,0 +1,36 @@
+BASELINE
+────────────────────────────────────────
+
+Tasks completed                       11
+
+Total tokens
+  Input                          18.8k
+  Output                          4.5k
+  Reused input                    1.0k
+  Reasoning (discarded)           4.3k
+
+Estimated cost                   $0.0055
+  billed as                gpt-4o-mini
+
+Average task
+  Tokens                          2.1k
+  Turns                            1.9
+  Tool calls                       0.9
+  Latency                        18.1s
+
+Repeated input share                  5%
+Success rate                        100%
+
+Most expensive tools:
+  search_documents  100%  (10.4k, 9 calls)
+  current_datetime   0%  (12, 1 calls)
+
+Context growth:
+  Tool outputs           ██████████           52%
+  Tool schemas           ██████               28%
+  Conversation history   ██                   11%
+  System prompt          ██                   8%
+  User task                                   1%
+  Chat template etc.                          0%
+  (the total is measured; the parts are estimated, and what could not be
+   attributed is its own line rather than spread across the others)
