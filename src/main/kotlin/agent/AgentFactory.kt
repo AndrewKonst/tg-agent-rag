@@ -151,7 +151,7 @@ object AgentFactory {
         ToolBox(
             buildList<AgentTool> {
                 add(DateTimeTool())
-                add(SearchDocumentsTool(chatId, documentSearchService))
+                add(SearchDocumentsTool(chatId, documentSearchService, config.ragExcerptChars))
                 if (sandbox != null) {
                     add(ExecTool(sandbox, config.execTimeout, config.execOutputLimit))
                 }

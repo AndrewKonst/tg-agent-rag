@@ -6,12 +6,27 @@ import ai.koog.agents.core.tools.ToolParameterType
 import harness.AgentTool
 import harness.requiredString
 import kotlinx.serialization.json.JsonObject
+import rag.ChunkExcerpt
 import rag.DocumentSearchService
 import rag.RagSearchResult
 
+/**
+ * Document search, as the agent sees it.
+ *
+ * What this returns is the single largest thing the agent sends to the model — the
+ * audit measured it at 64% of all input tokens — so the output is deliberately
+ * frugal: a few results, each cut down to the part that bears on the question, and
+ * no boilerplate the system prompt already says.
+ *
+ * What is never trimmed is the source: a chunk without its filename cannot be cited,
+ * and an answer that cannot be traced to a document is the thing this whole feature
+ * exists to avoid.
+ */
 class SearchDocumentsTool(
     private val userId: Long,
     private val searchService: DocumentSearchService,
+    /** How much of each chunk reaches the model. See [ChunkExcerpt]. */
+    private val excerptChars: Int = DEFAULT_EXCERPT_CHARS,
 ) : AgentTool {
 
     override val descriptor = ToolDescriptor(
@@ -31,24 +46,25 @@ class SearchDocumentsTool(
 
     override suspend fun execute(args: JsonObject): String {
         val query = args.requiredString("query")
-        val results = searchService.searchDocuments(userId, query)
-        return results.toToolOutput()
+        return searchService.searchDocuments(userId, query).toToolOutput(query)
     }
 
-    private fun List<RagSearchResult>.toToolOutput(): String {
+    private fun List<RagSearchResult>.toToolOutput(query: String): String {
         if (isEmpty()) {
             return "No relevant chunks found in this user's saved documents."
         }
 
         return buildString {
-            appendLine("Relevant document chunks:")
             this@toToolOutput.forEachIndexed { index, result ->
-                appendLine()
-                appendLine("[${index + 1}] Source: ${result.filename}, chunk #${result.chunkIndex}, score=${"%.3f".format(result.score)}")
-                appendLine(result.text)
+                if (index > 0) appendLine()
+                // The source line is what the answer cites; the excerpt is what it uses.
+                appendLine("[${index + 1}] ${result.filename}, chunk #${result.chunkIndex}")
+                appendLine(ChunkExcerpt.excerpt(result.text, query, excerptChars))
             }
-            appendLine()
-            appendLine("Answer using only these chunks. If they do not contain the answer, say that the information was not found in the uploaded documents.")
-        }
+        }.trimEnd()
+    }
+
+    private companion object {
+        const val DEFAULT_EXCERPT_CHARS = 400
     }
 }

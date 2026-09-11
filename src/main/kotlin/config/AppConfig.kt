@@ -153,6 +153,10 @@ data class AppConfig(
     val embeddingDimension: Int,
     /** Largest document accepted for indexing, in bytes. */
     val ragMaxDocumentBytes: Long,
+    /** How many chunks a search returns. */
+    val ragTopK: Int,
+    /** How much of each returned chunk reaches the model, in characters. */
+    val ragExcerptChars: Int,
     /** Whether every run is measured and stored for the token audit. */
     val observabilityEnabled: Boolean,
     val observabilityDbPath: String,
@@ -172,6 +176,7 @@ data class AppConfig(
             "conversationMaxChars=$conversationMaxChars, ragDbPath='$ragDbPath', " +
             "sqliteVec=${sqliteVecExtensionPath ?: "<fallback>"}, " +
             "embeddings=$embeddingProvider/'$embeddingModel'/${embeddingDimension}d, " +
+            "ragTopK=$ragTopK, ragExcerpt=${ragExcerptChars}ch, " +
             "observability=${if (observabilityEnabled) observabilityDbPath else "off"}, " +
             "execSandbox=$execSandbox, " +
             "owners=${ownerChatIds.size}, execTimeout=$execTimeout, " +
@@ -205,6 +210,24 @@ data class AppConfig(
         private const val DEFAULT_EXEC_WORKDIR = "data/workspace"
         private const val DEFAULT_SKILLS_DIR = "skills"
         private const val DEFAULT_RAG_DB_PATH = "data/rag.db"
+
+        /**
+         * Three chunks, not five.
+         *
+         * The audit measured retrieval output at 64% of everything the agent sends,
+         * and the answer was in the first three results in every benchmark task that
+         * had one. Two would be brittle — a fact that straddles a chunk boundary can
+         * land in the third — so three is the point where the saving stops being free.
+         */
+        private const val DEFAULT_TOP_K = 3
+
+        /**
+         * How much of a chunk the model actually needs.
+         *
+         * Chunks are a thousand characters because that is a good size to embed, not
+         * because the model needs all of it to answer.
+         */
+        private const val DEFAULT_EXCERPT_CHARS = 400
 
         /**
          * 20 MB. Big enough for any realistic report, small enough that one upload
@@ -296,6 +319,10 @@ data class AppConfig(
                 ragMaxDocumentBytes = positiveLong(
                     source, "RAG_MAX_DOCUMENT_BYTES", DEFAULT_MAX_DOCUMENT_BYTES,
                 ),
+                ragTopK = positiveLong(source, "RAG_TOP_K", DEFAULT_TOP_K.toLong()).toInt(),
+                ragExcerptChars = positiveLong(
+                    source, "RAG_EXCERPT_CHARS", DEFAULT_EXCERPT_CHARS.toLong(),
+                ).toInt(),
                 observabilityEnabled = boolean(source, "OBSERVABILITY_ENABLED", default = true),
                 observabilityDbPath = source["OBSERVABILITY_DB_PATH"]?.trim()?.takeIf { it.isNotEmpty() }
                     ?: ObservabilityStore.DEFAULT_DB_PATH,
